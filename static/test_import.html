@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bulk Import Test</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 10px; border: 1px solid #ccc; }
+        .results { margin-top: 10px; padding: 10px; background-color: #f0f0f0; }
+        #progressBox { color: #000; font-weight: bold; margin: 10px 0; }
+        .error { color: red; font-weight: bold; }
+        .success { color: green; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Spreadsheet Import Tester</h1>
+    
+    <div class="test-section">
+        <h2>Test 1: Upload Valid CSV</h2>
+        <input type="file" id="csvFile" accept=".csv" />
+        <button onclick="testUpload('csvFile', 'progress1')">Upload</button>
+        <div id="progress1" class="results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Upload Valid XLSX</h2>
+        <input type="file" id="xlsxFile" accept=".xlsx" />
+        <button onclick="testUpload('xlsxFile', 'progress2')">Upload</button>
+        <div id="progress2" class="results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Upload Empty File (should error)</h2>
+        <input type="file" id="emptyFile" />
+        <button onclick="testUpload('emptyFile', 'progress3')">Upload</button>
+        <div id="progress3" class="results"></div>
+    </div>
+
+    <script>
+        async function testUpload(fileInputId, progressBoxId) {
+            const fileInput = document.getElementById(fileInputId);
+            const progressBox = document.getElementById(progressBoxId);
+            const file = fileInput.files[0];
+
+            if (!file) {
+                progressBox.innerHTML = '<span class="error">Please select a file first</span>';
+                return;
+            }
+
+            progressBox.innerHTML = 'Uploading...';
+
+            try {
+                const form = new FormData();
+                form.append('file', file);
+                
+                const response = await fetch('http://127.0.0.1:8000/api/sourcing/import', {
+                    method: 'POST',
+                    body: form
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    progressBox.innerHTML = `<span class="error">Error: ${data.detail}</span>`;
+                    return;
+                }
+
+                progressBox.innerHTML = `<span class="success">Import started (Job: ${data.job_id})</span><br>`;
+                progressBox.innerHTML += `Total rows: ${data.total}`;
+
+                // Poll for progress
+                let pollCount = 0;
+                const checkProgress = setInterval(async () => {
+                    pollCount++;
+                    try {
+                        const progressResponse = await fetch('http://127.0.0.1:8000/api/sourcing/import/progress');
+                        const progress = await progressResponse.json();
+
+                        if (progress.running) {
+                            progressBox.innerHTML = `<span class="success">Processing:</span> ${progress.done}/${progress.total} (${progress.success} success, ${progress.failed} failed)`;
+                        } else {
+                            clearInterval(checkProgress);
+                            progressBox.innerHTML = `<span class="success">Complete:</span> ${progress.done}/${progress.total} (${progress.success} success, ${progress.failed} failed)`;
+                        }
+                    } catch (err) {
+                        console.error('Progress check failed:', err);
+                    }
+
+                    if (pollCount > 50) clearInterval(checkProgress);
+                }, 500);
+
+            } catch (err) {
+                progressBox.innerHTML = `<span class="error">Request failed: ${err.message}</span>`;
+            }
+        }
+    </script>
+</body>
+</html>
